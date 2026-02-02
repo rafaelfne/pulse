@@ -1,0 +1,11 @@
+{
+  "name": "pulse",
+  "image": "mcr.microsoft.com/devcontainers/go:1.23",
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": {
+      "label": "pulse",
+      "onAutoForward": "openBrowser"
+    }
+  }
+}
