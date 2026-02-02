@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/rafaelfne/pulse/internal/consumer"
-	"github.com/rafaelfne/pulse/internal/event"
-	"github.com/rafaelfne/pulse/internal/ingest"
+	"pulse/internal/consumer"
+	"pulse/internal/event"
+	"pulse/internal/ingest"
 )
 
 // Config holds server configuration.

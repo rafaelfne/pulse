@@ -1,3 +1,3 @@
-module github.com/rafaelfne/pulse
+module pulse
 
 go 1.23

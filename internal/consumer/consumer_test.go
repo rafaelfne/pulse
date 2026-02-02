@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/rafaelfne/pulse/internal/event"
-	"github.com/rafaelfne/pulse/internal/log"
-	"github.com/rafaelfne/pulse/internal/logstore"
+	"pulse/internal/event"
+	"pulse/internal/log"
+	"pulse/internal/logstore"
 )
 
 func setupStorage(t *testing.T) (*logstore.Storage, context.Context, context.CancelFunc) {

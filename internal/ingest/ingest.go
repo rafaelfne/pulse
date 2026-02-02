@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rafaelfne/pulse/internal/event"
-	"github.com/rafaelfne/pulse/internal/logstore"
-	"github.com/rafaelfne/pulse/internal/partition"
+	"pulse/internal/event"
+	"pulse/internal/logstore"
+	"pulse/internal/partition"
 )
 
 // Config holds ingest configuration.

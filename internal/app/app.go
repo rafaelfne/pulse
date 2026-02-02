@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/rafaelfne/pulse/internal/config"
-	"github.com/rafaelfne/pulse/internal/consumer"
-	"github.com/rafaelfne/pulse/internal/ingest"
-	"github.com/rafaelfne/pulse/internal/logstore"
-	"github.com/rafaelfne/pulse/internal/server"
+	"pulse/internal/config"
+	"pulse/internal/consumer"
+	"pulse/internal/ingest"
+	"pulse/internal/logstore"
+	"pulse/internal/server"
 )
 
 // App represents the main application with its lifecycle.

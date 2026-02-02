@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rafaelfne/pulse/internal/event"
+	"pulse/internal/event"
 )
 
 // Config holds storage configuration.

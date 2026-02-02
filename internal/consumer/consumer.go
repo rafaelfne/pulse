@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/rafaelfne/pulse/internal/event"
-	"github.com/rafaelfne/pulse/internal/logstore"
+	"pulse/internal/event"
+	"pulse/internal/logstore"
 )
 
 // Config holds consumer configuration.

@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rafaelfne/pulse/internal/event"
+	"pulse/internal/event"
 )
 
 // Segment represents a read-only log segment file.

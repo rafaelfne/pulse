@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelfne/pulse/internal/event"
-	"github.com/rafaelfne/pulse/internal/log"
-	"github.com/rafaelfne/pulse/internal/logstore"
+	"pulse/internal/event"
+	"pulse/internal/log"
+	"pulse/internal/logstore"
 )
 
 func setupStorageForIngest(t *testing.T, numPartitions int) (*logstore.Storage, context.Context, context.CancelFunc) {

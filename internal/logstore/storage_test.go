@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelfne/pulse/internal/event"
-	"github.com/rafaelfne/pulse/internal/log"
+	"pulse/internal/event"
+	"pulse/internal/log"
 )
 
 func TestStorageBasic(t *testing.T) {

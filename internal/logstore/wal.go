@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/rafaelfne/pulse/internal/event"
+	"pulse/internal/event"
 )
 
 // WAL represents a write-ahead log for a single partition.

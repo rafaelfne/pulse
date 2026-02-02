@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/rafaelfne/pulse/internal/event"
+	"pulse/internal/event"
 )
 
 func TestReaderBasic(t *testing.T) {
