@@ -61,6 +61,24 @@ Errors are wrapped with context using `fmt.Errorf` with `%w` for stack traces. E
 - Integration tests for cross-component behavior
 - No mocks for interfaces we own (use real implementations or fakes)
 
+### 6. API Documentation
+
+Pulse uses a **static OpenAPI specification** for API documentation. Key decisions:
+
+- **Static YAML file** (`docs/openapi.yaml`) maintained alongside code
+- **Embedded in binary** using `go:embed` for zero external dependencies
+- **No reflection-based generation** - explicit schemas, no runtime overhead
+- **Scalar UI integration** via CDN for interactive documentation
+- **Environment-gated** - enabled by default in local/dev, disabled in production
+
+This approach prioritizes:
+- **Clarity**: API contract is explicit and human-readable
+- **Simplicity**: No code generation or complex tooling
+- **Performance**: Zero runtime cost when disabled
+- **Reliability**: Documentation cannot drift from spec (spec is the documentation)
+
+The OpenAPI spec is served at `/openapi.yaml` and the interactive Scalar UI at `/docs` when `PULSE_ENABLE_DOCS=true`.
+
 ## Future Architecture
 
 ### Phase 1: Ingestion (Next)

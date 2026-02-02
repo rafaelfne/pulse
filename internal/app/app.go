@@ -88,10 +88,11 @@ func (a *App) Start(ctx context.Context) error {
 		WriteTimeoutMs:    a.cfg.WriteTimeoutMs,
 		ShutdownTimeoutMs: a.cfg.ShutdownTimeoutMs,
 		MaxBodyBytes:      a.cfg.MaxBodyBytes,
+		EnableDocs:        a.cfg.EnableDocs,
 	}
 
 	a.server = server.NewServer(serverCfg, a.logger, a.ingest, a.consumer)
-	a.logger.Info("server initialized", "port", a.cfg.ServerPort)
+	a.logger.Info("server initialized", "port", a.cfg.ServerPort, "docs_enabled", a.cfg.EnableDocs)
 
 	// Start server (blocks until context cancelled)
 	return a.server.Start(ctx)

@@ -53,6 +53,28 @@ curl "http://localhost:8080/stream?partition=0&offset=0&limit=100"
 curl http://localhost:8080/metrics
 ```
 
+### API Documentation
+
+Interactive API documentation is available via Scalar UI when running in local/dev mode:
+
+```bash
+# Start Pulse (docs enabled by default in local/dev)
+make run
+
+# Open in browser
+open http://localhost:8080/docs
+```
+
+The OpenAPI spec is also available at:
+```bash
+curl http://localhost:8080/openapi.yaml
+```
+
+To disable docs in production:
+```bash
+PULSE_ENABLE_DOCS=false make run
+```
+
 ### Benchmark
 
 ```bash
@@ -137,6 +159,7 @@ Configure Pulse using environment variables. See [docs/api.md](docs/api.md) for 
 **Server:**
 - `PULSE_SERVER_PORT` - HTTP port. Default: `8080`
 - `PULSE_MAX_BATCH_SIZE` - Max events per batch. Default: `1000`
+- `PULSE_ENABLE_DOCS` - Enable API docs. Default: `true` in local/dev, `false` otherwise
 
 **Logging:**
 - `PULSE_LOG_LEVEL` - Log level (debug|info|warn|error). Default: `info`

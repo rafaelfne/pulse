@@ -1,0 +1,423 @@
+openapi: 3.0.3
+info:
+  title: Pulse API
+  version: 0.1.0
+  description: |
+    High-performance event ingestion and distributed stream processing API.
+    
+    Pulse provides a simple HTTP API for ingesting events and streaming them back with partition-based offsets.
+    
+    **Phase 1 Features:**
+    - Batch event ingestion
+    - Offset-based streaming
+    - Metrics and health monitoring
+  contact:
+    name: Pulse Team
+  license:
+    name: TBD
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+tags:
+  - name: Ingest
+    description: Event ingestion endpoints
+  - name: Stream
+    description: Event streaming endpoints
+  - name: Observability
+    description: Metrics and health monitoring
+
+paths:
+  /events:
+    post:
+      summary: Ingest a batch of events
+      description: |
+        Accepts a batch of events and writes them to the partitioned log.
+        Each event is assigned to a partition based on its key (via consistent hashing).
+        Returns the partition and offset for each ingested event.
+      operationId: ingestEvents
+      tags:
+        - Ingest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventBatch'
+            examples:
+              simple:
+                summary: Simple batch with two events
+                value:
+                  events:
+                    - key: "user-1"
+                      data: "eyJ0ZXN0IjoxfQ=="
+                    - key: "user-2"
+                      data: "eyJ0ZXN0IjoyfQ=="
+              noKey:
+                summary: Event without a key (random partition)
+                value:
+                  events:
+                    - key: ""
+                      data: "eyJtZXNzYWdlIjoiaGVsbG8ifQ=="
+      responses:
+        '200':
+          description: Events ingested successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestResult'
+              examples:
+                success:
+                  summary: Successful ingestion
+                  value:
+                    results:
+                      - partition: 0
+                        offset: 42
+                      - partition: 2
+                        offset: 13
+        '400':
+          description: Bad request (invalid JSON or batch size exceeded)
+          content:
+            text/plain:
+              schema:
+                type: string
+              examples:
+                invalidJSON:
+                  value: "Invalid JSON"
+                batchTooLarge:
+                  value: "batch size 1500 exceeds max 1000"
+        '405':
+          description: Method not allowed (only POST is supported)
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Method not allowed"
+        '413':
+          description: Request body too large
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Request body too large"
+        '500':
+          description: Internal server error during ingestion
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Internal server error"
+
+  /stream:
+    get:
+      summary: Stream events from a partition
+      description: |
+        Reads events from a specific partition starting at the given offset.
+        Returns up to `limit` events (default: 100, max: configured by server).
+        
+        Use this endpoint to consume events sequentially from a partition.
+        Track the highest offset returned to resume from that point.
+      operationId: streamEvents
+      tags:
+        - Stream
+      parameters:
+        - name: partition
+          in: query
+          required: true
+          description: Partition ID to read from (0-indexed)
+          schema:
+            type: integer
+            minimum: 0
+          example: 0
+        - name: offset
+          in: query
+          required: false
+          description: Starting offset (inclusive). Defaults to 0.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+            default: 0
+          example: 42
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of events to return. Default is 100.
+          schema:
+            type: integer
+            minimum: 1
+            default: 100
+          example: 100
+      responses:
+        '200':
+          description: Events retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamResult'
+              examples:
+                withEvents:
+                  summary: Stream with events
+                  value:
+                    entries:
+                      - offset: 42
+                        timestamp: 1704067200000000000
+                        key: "user-1"
+                        data: "eyJ0ZXN0IjoxfQ=="
+                      - offset: 43
+                        timestamp: 1704067201000000000
+                        key: "user-1"
+                        data: "eyJ0ZXN0IjoyfQ=="
+                empty:
+                  summary: No events at offset
+                  value:
+                    entries: []
+        '400':
+          description: Bad request (missing or invalid parameters)
+          content:
+            text/plain:
+              schema:
+                type: string
+              examples:
+                missingPartition:
+                  value: "Missing partition parameter"
+                invalidPartition:
+                  value: "Invalid partition"
+                invalidOffset:
+                  value: "Invalid offset"
+                invalidLimit:
+                  value: "Invalid limit"
+        '405':
+          description: Method not allowed (only GET is supported)
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Method not allowed"
+        '500':
+          description: Internal server error during streaming
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Internal server error"
+
+  /metrics:
+    get:
+      summary: Get server metrics
+      description: |
+        Returns runtime metrics for monitoring and observability.
+        Includes counters for ingest/stream operations and latency statistics.
+      operationId: getMetrics
+      tags:
+        - Observability
+      responses:
+        '200':
+          description: Metrics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Metrics'
+              example:
+                ingest_requests: 1543
+                ingest_events: 15234
+                ingest_errors: 2
+                ingest_avg_latency_ms: 3.42
+                stream_requests: 891
+                stream_events: 45123
+                stream_errors: 0
+        '405':
+          description: Method not allowed (only GET is supported)
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Method not allowed"
+
+  /health:
+    get:
+      summary: Health check endpoint
+      description: |
+        Simple health check that returns "OK" if the server is running.
+        Use this for readiness/liveness probes.
+      operationId: healthCheck
+      tags:
+        - Observability
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            text/plain:
+              schema:
+                type: string
+                enum: ["OK"]
+              example: "OK"
+
+components:
+  schemas:
+    Event:
+      type: object
+      description: A single event to ingest
+      required:
+        - key
+        - data
+      properties:
+        key:
+          type: string
+          description: |
+            Partition key for the event. Used for consistent hashing to assign the event to a partition.
+            Can be empty string (will use random partition).
+          example: "user-123"
+        data:
+          type: string
+          format: byte
+          description: |
+            Base64-encoded event payload. The server does not interpret this data.
+            Maximum size depends on server configuration (PULSE_MAX_BODY_BYTES).
+          example: "eyJ0ZXN0IjoxfQ=="
+        timestamp:
+          type: integer
+          format: int64
+          description: |
+            Optional client timestamp in nanoseconds. 
+            Note: This field is present in the request schema but is not used by the server.
+            Server always assigns timestamps upon ingestion. This field exists for client convenience 
+            and future compatibility but currently has no effect on storage or ordering.
+          example: 1704067200000000000
+
+    EventBatch:
+      type: object
+      description: |
+        A batch of events to ingest. Empty batches (0 events) are accepted and return an empty result.
+      required:
+        - events
+      properties:
+        events:
+          type: array
+          description: Array of events to ingest (max size configurable via PULSE_MAX_BATCH_SIZE, default 1000)
+          items:
+            $ref: '#/components/schemas/Event'
+          minItems: 0
+          maxItems: 1000
+
+    IngestResult:
+      type: object
+      description: Result of ingesting a batch of events
+      required:
+        - results
+      properties:
+        results:
+          type: array
+          description: Per-event result containing partition and offset
+          items:
+            $ref: '#/components/schemas/EventResult'
+
+    EventResult:
+      type: object
+      description: Result for a single ingested event
+      required:
+        - partition
+        - offset
+      properties:
+        partition:
+          type: integer
+          description: Partition ID where the event was written
+          minimum: 0
+          example: 0
+        offset:
+          type: integer
+          format: int64
+          description: Offset within the partition where the event was written
+          minimum: 0
+          example: 42
+
+    StreamResult:
+      type: object
+      description: Result of a stream request
+      required:
+        - entries
+      properties:
+        entries:
+          type: array
+          description: Array of log entries read from the partition
+          items:
+            $ref: '#/components/schemas/LogEntry'
+
+    LogEntry:
+      type: object
+      description: A log entry read from storage
+      required:
+        - offset
+        - timestamp
+        - key
+        - data
+      properties:
+        offset:
+          type: integer
+          format: int64
+          description: Offset of this entry within its partition
+          minimum: 0
+          example: 42
+        timestamp:
+          type: integer
+          format: int64
+          description: Unix timestamp in nanoseconds when the event was ingested
+          example: 1704067200000000000
+        key:
+          type: string
+          description: Partition key of the original event
+          example: "user-123"
+        data:
+          type: string
+          format: byte
+          description: Base64-encoded event payload
+          example: "eyJ0ZXN0IjoxfQ=="
+
+    Metrics:
+      type: object
+      description: Server runtime metrics
+      required:
+        - ingest_requests
+        - ingest_events
+        - ingest_errors
+        - ingest_avg_latency_ms
+        - stream_requests
+        - stream_events
+        - stream_errors
+      properties:
+        ingest_requests:
+          type: integer
+          format: int64
+          description: Total number of ingest requests received
+          example: 1543
+        ingest_events:
+          type: integer
+          format: int64
+          description: Total number of events ingested
+          example: 15234
+        ingest_errors:
+          type: integer
+          format: int64
+          description: Total number of ingest errors
+          example: 2
+        ingest_avg_latency_ms:
+          type: number
+          format: double
+          description: Average ingest latency in milliseconds
+          example: 3.42
+        stream_requests:
+          type: integer
+          format: int64
+          description: Total number of stream requests received
+          example: 891
+        stream_events:
+          type: integer
+          format: int64
+          description: Total number of events streamed
+          example: 45123
+        stream_errors:
+          type: integer
+          format: int64
+          description: Total number of stream errors
+          example: 0
