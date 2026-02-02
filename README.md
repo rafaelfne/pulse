@@ -2,9 +2,11 @@
 
 **High-performance event ingestion and distributed stream processing in Go.**
 
-Pulse is designed for scalable, low-latency event ingestion with a future focus on distributed stream processing. Built with explicit wiring, minimal allocations, and a backpressure-first mindset.
+Pulse is designed for scalable, low-latency event ingestion with consumer groups and offset tracking. Built with explicit wiring, minimal allocations, and a backpressure-first mindset.
 
-## Phase 1 - Single-Node Ingest + Streaming (✅ Complete)
+## Current State
+
+### Phase 1 - Single-Node Ingest + Streaming (✅ Complete)
 
 Phase 1 delivers:
 - **High-throughput event ingestion** via REST API (`POST /events`)
@@ -13,7 +15,19 @@ Phase 1 delivers:
 - **Metrics endpoint** for observability (`GET /metrics`)
 - **Restart-safe persistence** with automatic recovery
 
-### Quick Start
+### Phase 2 - Consumer Groups + Offset Tracking (✅ Complete)
+
+Phase 2 adds:
+- **Consumer groups** with static round-robin partition assignment
+- **Persistent offset tracking** per (groupId, partition)
+- **ACK-based commit protocol** for at-least-once delivery
+- **Backpressure** via configurable inflight message limits
+- **Heartbeat-based failure detection** with automatic partition reassignment
+- **Consumer group streaming API** (`GET /groups/{groupId}/stream`)
+- **Offset commit API** (`POST /groups/{groupId}/ack`)
+- **Heartbeat API** (`POST /groups/{groupId}/heartbeat`)
+
+## Quick Start
 
 ```bash
 # Build
@@ -43,8 +57,27 @@ curl -X POST http://localhost:8080/events \
 ### Stream Events
 
 ```bash
-# Read from partition 0, starting at offset 0
+# Phase 1: Direct partition streaming
 curl "http://localhost:8080/stream?partition=0&offset=0&limit=100"
+
+# Phase 2: Consumer group streaming
+curl "http://localhost:8080/groups/my-group/stream?consumerId=consumer-1&partition=0&limit=100"
+```
+
+### Commit Offsets (Phase 2)
+
+```bash
+curl -X POST http://localhost:8080/groups/my-group/ack \
+  -H "Content-Type: application/json" \
+  -d '{"consumerId": "consumer-1", "partition": 0, "offset": 42}'
+```
+
+### Send Heartbeat (Phase 2)
+
+```bash
+curl -X POST http://localhost:8080/groups/my-group/heartbeat \
+  -H "Content-Type: application/json" \
+  -d '{"consumerId": "consumer-1"}'
 ```
 
 ### Check Metrics
@@ -105,7 +138,9 @@ See [docs/api.md](docs/api.md) for complete API documentation and [docs/architec
 
 ## Current State
 
-Phase 1 is complete and includes:
+Phase 1 and Phase 2 are complete and include:
+
+**Phase 1:**
 - ✅ Event model and API contracts
 - ✅ Hash-based partitioning
 - ✅ Per-partition WAL with segment rotation
@@ -118,6 +153,18 @@ Phase 1 is complete and includes:
 - ✅ Comprehensive test coverage
 - ✅ Production-grade error handling
 - ✅ Benchmark harness
+
+**Phase 2:**
+- ✅ Consumer group manager with static partition assignment
+- ✅ Persistent offset store per (groupId, partition)
+- ✅ Consumer group streaming endpoint (`GET /groups/{groupId}/stream`)
+- ✅ ACK/commit endpoint (`POST /groups/{groupId}/ack`)
+- ✅ Heartbeat endpoint (`POST /groups/{groupId}/heartbeat`)
+- ✅ Inflight message tracking and backpressure
+- ✅ Dead consumer detection with partition reassignment
+- ✅ At-least-once delivery semantics
+- ✅ Consumer group metrics
+- ✅ Comprehensive test coverage
 
 ## Getting Started
 
@@ -161,6 +208,11 @@ Configure Pulse using environment variables. See [docs/api.md](docs/api.md) for 
 - `PULSE_MAX_BATCH_SIZE` - Max events per batch. Default: `1000`
 - `PULSE_ENABLE_DOCS` - Enable API docs. Default: `true` in local/dev, `false` otherwise
 
+**Consumer Groups (Phase 2):**
+- `PULSE_CONSUMER_TIMEOUT_MS` - Consumer heartbeat timeout. Default: `30000` (30 seconds)
+- `PULSE_MAX_INFLIGHT_PER_CONSUMER` - Max inflight messages per consumer. Default: `100`
+- `PULSE_OFFSET_FLUSH_INTERVAL_MS` - Offset persistence interval. Default: `1000`
+
 **Logging:**
 - `PULSE_LOG_LEVEL` - Log level (debug|info|warn|error). Default: `info`
 
@@ -169,6 +221,7 @@ Example:
 PULSE_NUM_PARTITIONS=8 \
 PULSE_LOG_LEVEL=debug \
 PULSE_SERVER_PORT=9000 \
+PULSE_CONSUMER_TIMEOUT_MS=60000 \
 make run
 ```
 
@@ -196,9 +249,11 @@ kill -TERM $(pgrep pulse)
 │   ├── config/            # Configuration management
 │   ├── consumer/          # Event streaming consumer
 │   ├── event/             # Event model and encoding
+│   ├── group/             # Consumer group manager (Phase 2)
 │   ├── ingest/            # Event ingestion pipeline
 │   ├── log/               # Structured logging
 │   ├── logstore/          # WAL, segments, and storage
+│   ├── offset/            # Offset tracking store (Phase 2)
 │   ├── partition/         # Partition routing
 │   ├── runtime/           # Runtime utilities (shutdown handling)
 │   ├── server/            # HTTP server and handlers
