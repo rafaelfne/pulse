@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +17,9 @@ import (
 	"pulse/internal/ingest"
 )
 
+//go:embed openapi.yaml
+var openapiSpec []byte
+
 // Config holds server configuration.
 type Config struct {
 	Host              string
@@ -24,6 +28,7 @@ type Config struct {
 	WriteTimeoutMs    int
 	ShutdownTimeoutMs int
 	MaxBodyBytes      int64
+	EnableDocs        bool
 }
 
 // Server is the HTTP server for ingest and streaming.
@@ -78,6 +83,12 @@ func NewServer(cfg Config, logger *slog.Logger, ing *ingest.Ingest, cons *consum
 	mux.HandleFunc("/stream", s.handleStream)
 	mux.HandleFunc("/metrics", s.handleMetrics)
 	mux.HandleFunc("/health", s.handleHealth)
+
+	// Register docs endpoints if enabled
+	if cfg.EnableDocs {
+		mux.HandleFunc("/openapi.yaml", s.handleOpenAPISpec)
+		mux.HandleFunc("/docs", s.handleScalarUI)
+	}
 
 	s.server = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
@@ -283,5 +294,48 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write([]byte("OK")); err != nil {
 		s.logger.Error("write health response error", "error", err)
+	}
+}
+
+// handleOpenAPISpec handles GET /openapi.yaml
+func (s *Server) handleOpenAPISpec(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/yaml")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(openapiSpec); err != nil {
+		s.logger.Error("write openapi spec error", "error", err)
+	}
+}
+
+// handleScalarUI handles GET /docs
+func (s *Server) handleScalarUI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	html := `<!DOCTYPE html>
+<html>
+<head>
+    <title>Pulse API Documentation</title>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+    <script
+        id="api-reference"
+        data-url="/openapi.yaml"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+</body>
+</html>`
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write([]byte(html)); err != nil {
+		s.logger.Error("write scalar ui error", "error", err)
 	}
 }

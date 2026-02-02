@@ -48,6 +48,63 @@ func TestLoad(t *testing.T) {
 			},
 		},
 		{
+			name: "docs enabled by default in local env",
+			env: map[string]string{
+				"PULSE_ENV": "local",
+			},
+			checkFunc: func(t *testing.T, cfg Config) {
+				if !cfg.EnableDocs {
+					t.Errorf("expected EnableDocs=true in local env, got false")
+				}
+			},
+		},
+		{
+			name: "docs enabled by default in dev env",
+			env: map[string]string{
+				"PULSE_ENV": "dev",
+			},
+			checkFunc: func(t *testing.T, cfg Config) {
+				if !cfg.EnableDocs {
+					t.Errorf("expected EnableDocs=true in dev env, got false")
+				}
+			},
+		},
+		{
+			name: "docs disabled by default in production env",
+			env: map[string]string{
+				"PULSE_ENV": "production",
+			},
+			checkFunc: func(t *testing.T, cfg Config) {
+				if cfg.EnableDocs {
+					t.Errorf("expected EnableDocs=false in production env, got true")
+				}
+			},
+		},
+		{
+			name: "docs can be explicitly enabled",
+			env: map[string]string{
+				"PULSE_ENV":         "production",
+				"PULSE_ENABLE_DOCS": "true",
+			},
+			checkFunc: func(t *testing.T, cfg Config) {
+				if !cfg.EnableDocs {
+					t.Errorf("expected EnableDocs=true when explicitly set, got false")
+				}
+			},
+		},
+		{
+			name: "docs can be explicitly disabled",
+			env: map[string]string{
+				"PULSE_ENV":         "local",
+				"PULSE_ENABLE_DOCS": "false",
+			},
+			checkFunc: func(t *testing.T, cfg Config) {
+				if cfg.EnableDocs {
+					t.Errorf("expected EnableDocs=false when explicitly set, got true")
+				}
+			},
+		},
+		{
 			name: "invalid log level",
 			env: map[string]string{
 				"PULSE_LOG_LEVEL": "invalid",

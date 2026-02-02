@@ -33,6 +33,9 @@ type Config struct {
 	ReadTimeoutMs  int
 	WriteTimeoutMs int
 	MaxBodyBytes   int64
+
+	// Documentation
+	EnableDocs bool
 }
 
 // Load reads configuration from environment variables with defaults.
@@ -63,6 +66,9 @@ func Load() (Config, error) {
 		ReadTimeoutMs:  getEnvInt("PULSE_READ_TIMEOUT_MS", 5000),
 		WriteTimeoutMs: getEnvInt("PULSE_WRITE_TIMEOUT_MS", 10000),
 		MaxBodyBytes:   int64(getEnvInt("PULSE_MAX_BODY_BYTES", 10*1024*1024)),
+
+		// Documentation
+		EnableDocs: getEnvBool("PULSE_ENABLE_DOCS", isDevEnv(getEnv("PULSE_ENV", "local"))),
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -114,4 +120,17 @@ func getEnvInt(key string, defaultValue int) int {
 		}
 	}
 	return defaultValue
+}
+
+func getEnvBool(key string, defaultValue bool) bool {
+	if value := os.Getenv(key); value != "" {
+		if boolVal, err := strconv.ParseBool(value); err == nil {
+			return boolVal
+		}
+	}
+	return defaultValue
+}
+
+func isDevEnv(env string) bool {
+	return env == "local" || env == "dev" || env == "development"
 }
