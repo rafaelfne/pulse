@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/rafaelfne/pulse/internal/app"
-	"github.com/rafaelfne/pulse/internal/config"
-	"github.com/rafaelfne/pulse/internal/log"
-	"github.com/rafaelfne/pulse/internal/runtime"
-	"github.com/rafaelfne/pulse/internal/version"
+	"pulse/internal/app"
+	"pulse/internal/config"
+	"pulse/internal/log"
+	"pulse/internal/runtime"
+	"pulse/internal/version"
 )
 
 func main() {
