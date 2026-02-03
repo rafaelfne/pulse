@@ -15,6 +15,9 @@
 /pulse
 /tmp/
 
+# Data directory (runtime generated)
+/data/
+
 # Dependency directories
 vendor/
 

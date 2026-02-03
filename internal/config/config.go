@@ -27,6 +27,11 @@ type Config struct {
 	// Consumer
 	MaxFetchSize int
 
+	// Consumer Groups (Phase 2)
+	ConsumerTimeoutMs      int
+	MaxInflightPerConsumer int
+	OffsetFlushIntervalMs  int
+
 	// Server
 	ServerHost     string
 	ServerPort     int
@@ -59,6 +64,11 @@ func Load() (Config, error) {
 
 		// Consumer
 		MaxFetchSize: getEnvInt("PULSE_MAX_FETCH_SIZE", 1000),
+
+		// Consumer Groups (Phase 2)
+		ConsumerTimeoutMs:      getEnvInt("PULSE_CONSUMER_TIMEOUT_MS", 30000),
+		MaxInflightPerConsumer: getEnvInt("PULSE_MAX_INFLIGHT_PER_CONSUMER", 100),
+		OffsetFlushIntervalMs:  getEnvInt("PULSE_OFFSET_FLUSH_INTERVAL_MS", 1000),
 
 		// Server
 		ServerHost:     getEnv("PULSE_SERVER_HOST", ""),

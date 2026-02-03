@@ -14,7 +14,9 @@ import (
 
 	"pulse/internal/consumer"
 	"pulse/internal/event"
+	"pulse/internal/group"
 	"pulse/internal/ingest"
+	"pulse/internal/offset"
 )
 
 //go:embed openapi.yaml
@@ -33,12 +35,14 @@ type Config struct {
 
 // Server is the HTTP server for ingest and streaming.
 type Server struct {
-	cfg      Config
-	logger   *slog.Logger
-	ingest   *ingest.Ingest
-	consumer *consumer.Consumer
-	server   *http.Server
-	metrics  *Metrics
+	logger       *slog.Logger
+	ingest       *ingest.Ingest
+	consumer     *consumer.Consumer
+	groupManager *group.Manager
+	offsetStore  *offset.Store
+	server       *http.Server
+	metrics      *Metrics
+	cfg          Config
 }
 
 // Metrics tracks server metrics.
@@ -50,10 +54,20 @@ type Metrics struct {
 	StreamEvents    atomic.Int64
 	StreamErrors    atomic.Int64
 	IngestLatencyNs atomic.Int64 // Sum of latencies for avg calculation
+
+	// Phase 2 metrics
+	GroupStreamRequests atomic.Int64
+	GroupStreamEvents   atomic.Int64
+	GroupStreamErrors   atomic.Int64
+	AckRequests         atomic.Int64
+	AckErrors           atomic.Int64
+	HeartbeatRequests   atomic.Int64
+	HeartbeatErrors     atomic.Int64
+	AckLatencyNs        atomic.Int64 // Sum of ACK latencies
 }
 
 // NewServer creates a new HTTP server.
-func NewServer(cfg Config, logger *slog.Logger, ing *ingest.Ingest, cons *consumer.Consumer) *Server {
+func NewServer(cfg Config, logger *slog.Logger, ing *ingest.Ingest, cons *consumer.Consumer, grpMgr *group.Manager, offStore *offset.Store) *Server {
 	if cfg.Port <= 0 {
 		cfg.Port = 8080
 	}
@@ -71,11 +85,13 @@ func NewServer(cfg Config, logger *slog.Logger, ing *ingest.Ingest, cons *consum
 	}
 
 	s := &Server{
-		cfg:      cfg,
-		logger:   logger,
-		ingest:   ing,
-		consumer: cons,
-		metrics:  &Metrics{},
+		cfg:          cfg,
+		logger:       logger,
+		ingest:       ing,
+		consumer:     cons,
+		groupManager: grpMgr,
+		offsetStore:  offStore,
+		metrics:      &Metrics{},
 	}
 
 	mux := http.NewServeMux()
@@ -83,6 +99,9 @@ func NewServer(cfg Config, logger *slog.Logger, ing *ingest.Ingest, cons *consum
 	mux.HandleFunc("/stream", s.handleStream)
 	mux.HandleFunc("/metrics", s.handleMetrics)
 	mux.HandleFunc("/health", s.handleHealth)
+
+	// Phase 2 consumer group endpoints
+	mux.HandleFunc("/groups/", s.handleGroupRoutes)
 
 	// Register docs endpoints if enabled
 	if cfg.EnableDocs {
@@ -149,7 +168,7 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 	// Limit body size
 	r.Body = http.MaxBytesReader(w, r.Body, s.cfg.MaxBodyBytes)
 	defer func() {
-		_ = r.Body.Close() // Best effort close
+		_ = r.Body.Close() //nolint:errcheck // Best-effort close
 	}()
 
 	// Parse request
@@ -280,6 +299,22 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		"stream_requests":       s.metrics.StreamRequests.Load(),
 		"stream_events":         s.metrics.StreamEvents.Load(),
 		"stream_errors":         s.metrics.StreamErrors.Load(),
+
+		// Phase 2 metrics
+		"group_stream_requests": s.metrics.GroupStreamRequests.Load(),
+		"group_stream_events":   s.metrics.GroupStreamEvents.Load(),
+		"group_stream_errors":   s.metrics.GroupStreamErrors.Load(),
+		"ack_requests":          s.metrics.AckRequests.Load(),
+		"ack_errors":            s.metrics.AckErrors.Load(),
+		"heartbeat_requests":    s.metrics.HeartbeatRequests.Load(),
+		"heartbeat_errors":      s.metrics.HeartbeatErrors.Load(),
+	}
+
+	// Add ACK latency if available
+	ackRequests := s.metrics.AckRequests.Load()
+	if ackRequests > 0 {
+		ackLatencySum := s.metrics.AckLatencyNs.Load()
+		metrics["ack_avg_latency_ms"] = float64(ackLatencySum) / float64(ackRequests) / 1e6
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -337,5 +372,294 @@ func (s *Server) handleScalarUI(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write([]byte(html)); err != nil {
 		s.logger.Error("write scalar ui error", "error", err)
+	}
+}
+
+// handleGroupRoutes routes consumer group requests.
+func (s *Server) handleGroupRoutes(w http.ResponseWriter, r *http.Request) {
+	const groupsPrefix = "/groups/"
+	const groupsPrefixLen = len(groupsPrefix)
+
+	// Parse path: /groups/{groupId}/{action}
+	path := r.URL.Path
+	if len(path) < groupsPrefixLen {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+
+	// Extract group ID and action
+	remaining := path[groupsPrefixLen:]
+	var groupID, action string
+
+	// Find the next slash
+	slashIdx := -1
+	for i, c := range remaining {
+		if c == '/' {
+			slashIdx = i
+			break
+		}
+	}
+
+	if slashIdx == -1 {
+		// No action specified
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+
+	groupID = remaining[:slashIdx]
+	action = remaining[slashIdx+1:]
+
+	if groupID == "" {
+		http.Error(w, "Missing group ID", http.StatusBadRequest)
+		return
+	}
+
+	switch action {
+	case "stream":
+		s.handleGroupStream(w, r, groupID)
+	case "ack":
+		s.handleGroupAck(w, r, groupID)
+	case "heartbeat":
+		s.handleGroupHeartbeat(w, r, groupID)
+	default:
+		http.Error(w, "Unknown action", http.StatusNotFound)
+	}
+}
+
+// handleGroupStream handles GET /groups/{groupId}/stream?consumerId=x&partition=p&limit=n
+func (s *Server) handleGroupStream(w http.ResponseWriter, r *http.Request, groupID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.metrics.GroupStreamRequests.Add(1)
+
+	query := r.URL.Query()
+	consumerID := query.Get("consumerId")
+	partitionStr := query.Get("partition")
+	limitStr := query.Get("limit")
+
+	if consumerID == "" {
+		s.metrics.GroupStreamErrors.Add(1)
+		http.Error(w, "Missing consumerId parameter", http.StatusBadRequest)
+		return
+	}
+
+	if partitionStr == "" {
+		s.metrics.GroupStreamErrors.Add(1)
+		http.Error(w, "Missing partition parameter", http.StatusBadRequest)
+		return
+	}
+
+	partition, err := strconv.Atoi(partitionStr)
+	if err != nil {
+		s.metrics.GroupStreamErrors.Add(1)
+		http.Error(w, "Invalid partition", http.StatusBadRequest)
+		return
+	}
+
+	if partition < 0 {
+		s.metrics.GroupStreamErrors.Add(1)
+		http.Error(w, "Partition must be non-negative", http.StatusBadRequest)
+		return
+	}
+
+	limit := 100 // Default
+	if limitStr != "" {
+		limit, err = strconv.Atoi(limitStr)
+		if err != nil {
+			s.metrics.GroupStreamErrors.Add(1)
+			http.Error(w, "Invalid limit", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Register consumer and validate partition assignment
+	_, regErr := s.groupManager.RegisterConsumer(groupID, consumerID)
+	if regErr != nil {
+		s.metrics.GroupStreamErrors.Add(1)
+		s.logger.Error("register consumer error", "error", regErr)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	valErr := s.groupManager.ValidateConsumerPartition(groupID, consumerID, partition)
+	if valErr != nil {
+		s.metrics.GroupStreamErrors.Add(1)
+		http.Error(w, fmt.Sprintf("Partition not assigned to consumer: %v", valErr), http.StatusForbidden)
+		return
+	}
+
+	// Check inflight limit
+	inflight := s.groupManager.GetInflight(groupID, consumerID, partition)
+	if inflight >= s.groupManager.MaxInflight() {
+		s.metrics.GroupStreamErrors.Add(1)
+		http.Error(w, "Max inflight messages reached", http.StatusTooManyRequests)
+		return
+	}
+
+	// Get committed offset
+	offset := s.offsetStore.Get(groupID, partition)
+
+	// Stream from consumer
+	result, err := s.consumer.Stream(r.Context(), partition, offset, limit)
+	if err != nil {
+		s.metrics.GroupStreamErrors.Add(1)
+		s.logger.Error("stream error", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Track inflight for returned events - validate count first
+	numEvents := len(result.Entries)
+	if inflight+numEvents > s.groupManager.MaxInflight() {
+		// Would exceed limit, return fewer events
+		allowed := s.groupManager.MaxInflight() - inflight
+		if allowed > 0 {
+			result.Entries = result.Entries[:allowed]
+			numEvents = allowed
+		} else {
+			result.Entries = nil
+			numEvents = 0
+		}
+	}
+
+	// Track the allowed events
+	// We already validated inflight limits above; any error here is unexpected.
+	for i := 0; i < numEvents; i++ {
+		_ = s.groupManager.TrackInflight(groupID, consumerID, partition)
+	}
+
+	s.metrics.GroupStreamEvents.Add(int64(len(result.Entries)))
+
+	// Write response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		s.logger.Error("encode stream response error", "error", err)
+	}
+}
+
+// AckRequest represents an ACK request.
+type AckRequest struct {
+	ConsumerID string `json:"consumerId"`
+	Partition  int    `json:"partition"`
+	Offset     int64  `json:"offset"`
+}
+
+// handleGroupAck handles POST /groups/{groupId}/ack
+func (s *Server) handleGroupAck(w http.ResponseWriter, r *http.Request, groupID string) {
+	start := time.Now()
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.metrics.AckRequests.Add(1)
+
+	// Parse request body
+	var req AckRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.metrics.AckErrors.Add(1)
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Validate required fields and value constraints
+	if req.ConsumerID == "" {
+		s.metrics.AckErrors.Add(1)
+		http.Error(w, "Missing consumerId", http.StatusBadRequest)
+		return
+	}
+
+	if req.Partition < 0 {
+		s.metrics.AckErrors.Add(1)
+		http.Error(w, "Partition must be non-negative", http.StatusBadRequest)
+		return
+	}
+
+	if req.Offset < 0 {
+		s.metrics.AckErrors.Add(1)
+		http.Error(w, "Offset must be non-negative", http.StatusBadRequest)
+		return
+	}
+
+	// Validate consumer owns partition
+	if err := s.groupManager.ValidateConsumerPartition(groupID, req.ConsumerID, req.Partition); err != nil {
+		s.metrics.AckErrors.Add(1)
+		http.Error(w, fmt.Sprintf("Partition not assigned to consumer: %v", err), http.StatusForbidden)
+		return
+	}
+
+	// Commit offset
+	if err := s.offsetStore.Commit(groupID, req.Partition, req.Offset); err != nil {
+		s.metrics.AckErrors.Add(1)
+		s.logger.Error("commit offset error", "error", err, "group", groupID, "partition", req.Partition, "offset", req.Offset)
+		http.Error(w, "Failed to commit offset", http.StatusInternalServerError)
+		return
+	}
+
+	// Release inflight
+	if err := s.groupManager.ReleaseInflight(groupID, req.ConsumerID, req.Partition); err != nil {
+		s.logger.Warn("release inflight error", "error", err)
+	}
+
+	s.metrics.AckLatencyNs.Add(time.Since(start).Nanoseconds())
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	resp := map[string]string{"status": "ok"}
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.Error("encode ack response error", "error", err)
+	}
+}
+
+// HeartbeatRequest represents a heartbeat request.
+type HeartbeatRequest struct {
+	ConsumerID string `json:"consumerId"`
+}
+
+// handleGroupHeartbeat handles POST /groups/{groupId}/heartbeat
+func (s *Server) handleGroupHeartbeat(w http.ResponseWriter, r *http.Request, groupID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.metrics.HeartbeatRequests.Add(1)
+
+	// Parse request body
+	var req HeartbeatRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.metrics.HeartbeatErrors.Add(1)
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.ConsumerID == "" {
+		s.metrics.HeartbeatErrors.Add(1)
+		http.Error(w, "Missing consumerId", http.StatusBadRequest)
+		return
+	}
+
+	// Send heartbeat
+	if err := s.groupManager.Heartbeat(groupID, req.ConsumerID); err != nil {
+		// If consumer not found, try to register it
+		_, regErr := s.groupManager.RegisterConsumer(groupID, req.ConsumerID)
+		if regErr != nil {
+			s.metrics.HeartbeatErrors.Add(1)
+			s.logger.Error("heartbeat and registration error", "heartbeat_error", err, "registration_error", regErr)
+			http.Error(w, "Failed to send heartbeat", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	resp := map[string]string{"status": "ok"}
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.Error("encode heartbeat response error", "error", err)
 	}
 }

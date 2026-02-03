@@ -10,14 +10,17 @@ import (
 	"testing"
 
 	"pulse/internal/consumer"
+	"pulse/internal/group"
 	"pulse/internal/ingest"
 	"pulse/internal/logstore"
+	"pulse/internal/offset"
 )
 
-func TestDocsEndpoints(t *testing.T) {
+// testServerDeps creates common test dependencies for server tests.
+func testServerDeps(t *testing.T) (*slog.Logger, *logstore.Storage, *ingest.Ingest, *consumer.Consumer, *offset.Store, *group.Manager) {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	// Create minimal storage for dependencies
+	// Create storage
 	storageCfg := logstore.Config{
 		DataDir:           t.TempDir(),
 		NumPartitions:     2,
@@ -30,13 +33,11 @@ func TestDocsEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create storage: %v", err)
 	}
-	defer func() {
-		_ = storage.Close()
-	}()
 
 	ctx := context.Background()
 	storage.Start(ctx)
 
+	// Create ingest
 	ingestCfg := ingest.Config{
 		NumPartitions:     2,
 		MaxBatchSize:      1000,
@@ -46,14 +47,46 @@ func TestDocsEndpoints(t *testing.T) {
 	}
 	ing := ingest.NewIngest(ingestCfg, logger, storage)
 	ing.Start(ctx)
-	defer func() {
-		_ = ing.Close()
-	}()
 
+	// Create consumer
 	consumerCfg := consumer.Config{
 		MaxFetchSize: 1000,
 	}
 	cons := consumer.NewConsumer(consumerCfg, logger, storage)
+
+	// Create offset store
+	offsetCfg := offset.Config{
+		DataDir:           t.TempDir(),
+		FlushIntervalMs:   1000,
+		ShutdownTimeoutMs: 5000,
+	}
+	offStore, err := offset.NewStore(offsetCfg, logger)
+	if err != nil {
+		t.Fatalf("create offset store: %v", err)
+	}
+	offStore.Start(ctx)
+
+	// Create group manager
+	groupCfg := group.Config{
+		NumPartitions:          2,
+		ConsumerTimeoutMs:      30000,
+		MaxInflightPerConsumer: 100,
+		ShutdownTimeoutMs:      5000,
+	}
+	grpMgr := group.NewManager(groupCfg, logger)
+	grpMgr.Start(ctx)
+
+	return logger, storage, ing, cons, offStore, grpMgr
+}
+
+func TestDocsEndpoints(t *testing.T) {
+	logger, storage, ing, cons, offStore, grpMgr := testServerDeps(t)
+	defer func() {
+		_ = storage.Close()  //nolint:errcheck // Test cleanup
+		_ = ing.Close()      //nolint:errcheck // Test cleanup
+		_ = offStore.Close() //nolint:errcheck // Test cleanup
+		_ = grpMgr.Close()   //nolint:errcheck // Test cleanup
+	}()
 
 	tests := []struct {
 		name           string
@@ -136,7 +169,7 @@ func TestDocsEndpoints(t *testing.T) {
 				EnableDocs:        tt.enableDocs,
 			}
 
-			srv := NewServer(cfg, logger, ing, cons)
+			srv := NewServer(cfg, logger, ing, cons, grpMgr, offStore)
 
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			w := httptest.NewRecorder()
@@ -165,44 +198,13 @@ func TestDocsEndpoints(t *testing.T) {
 }
 
 func TestNonDocsEndpointsStillWork(t *testing.T) {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-
-	storageCfg := logstore.Config{
-		DataDir:           t.TempDir(),
-		NumPartitions:     2,
-		FlushIntervalMs:   1000,
-		SegmentMaxBytes:   10 * 1024 * 1024,
-		SegmentMaxAgeMs:   3600000,
-		ShutdownTimeoutMs: 5000,
-	}
-	storage, err := logstore.NewStorage(storageCfg, logger)
-	if err != nil {
-		t.Fatalf("create storage: %v", err)
-	}
+	logger, storage, ing, cons, offStore, grpMgr := testServerDeps(t)
 	defer func() {
-		_ = storage.Close()
+		_ = storage.Close()  //nolint:errcheck // Test cleanup
+		_ = ing.Close()      //nolint:errcheck // Test cleanup
+		_ = offStore.Close() //nolint:errcheck // Test cleanup
+		_ = grpMgr.Close()   //nolint:errcheck // Test cleanup
 	}()
-
-	ctx := context.Background()
-	storage.Start(ctx)
-
-	ingestCfg := ingest.Config{
-		NumPartitions:     2,
-		MaxBatchSize:      1000,
-		MaxQueueSize:      10000,
-		WorkerCount:       2,
-		ShutdownTimeoutMs: 5000,
-	}
-	ing := ingest.NewIngest(ingestCfg, logger, storage)
-	ing.Start(ctx)
-	defer func() {
-		_ = ing.Close()
-	}()
-
-	consumerCfg := consumer.Config{
-		MaxFetchSize: 1000,
-	}
-	cons := consumer.NewConsumer(consumerCfg, logger, storage)
 
 	// Test with docs disabled
 	cfg := Config{
@@ -215,7 +217,7 @@ func TestNonDocsEndpointsStillWork(t *testing.T) {
 		EnableDocs:        false,
 	}
 
-	srv := NewServer(cfg, logger, ing, cons)
+	srv := NewServer(cfg, logger, ing, cons, grpMgr, offStore)
 
 	// Test health endpoint
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)

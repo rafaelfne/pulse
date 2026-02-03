@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Pulse API
-  version: 0.1.0
+  version: 0.2.0
   description: |
     High-performance event ingestion and distributed stream processing API.
     
@@ -11,6 +11,13 @@ info:
     - Batch event ingestion
     - Offset-based streaming
     - Metrics and health monitoring
+    
+    **Phase 2 Features:**
+    - Consumer groups with static partition assignment
+    - Persistent offset tracking per group
+    - ACK-based commit protocol (at-least-once delivery)
+    - Inflight message backpressure
+    - Consumer heartbeats and failure detection
   contact:
     name: Pulse Team
   license:
@@ -25,6 +32,8 @@ tags:
     description: Event ingestion endpoints
   - name: Stream
     description: Event streaming endpoints
+  - name: Consumer Groups
+    description: Consumer group management (Phase 2)
   - name: Observability
     description: Metrics and health monitoring
 
@@ -161,14 +170,14 @@ paths:
                   summary: Stream with events
                   value:
                     entries:
-                      - offset: 42
-                        timestamp: 1704067200000000000
-                        key: "user-1"
-                        data: "eyJ0ZXN0IjoxfQ=="
-                      - offset: 43
-                        timestamp: 1704067201000000000
-                        key: "user-1"
-                        data: "eyJ0ZXN0IjoyfQ=="
+                      - Offset: 42
+                        Timestamp: 1704067200000000000
+                        Key: "user-1"
+                        Data: "eyJ0ZXN0IjoxfQ=="
+                      - Offset: 43
+                        Timestamp: 1704067201000000000
+                        Key: "user-1"
+                        Data: "eyJ0ZXN0IjoyfQ=="
                 empty:
                   summary: No events at offset
                   value:
@@ -253,6 +262,274 @@ paths:
                 type: string
                 enum: ["OK"]
               example: "OK"
+
+  /groups/{groupId}/stream:
+    get:
+      summary: Stream events from a partition as a consumer group member
+      description: |
+        Reads events from a specific partition starting at the committed offset for the consumer group.
+        The consumer is automatically registered in the group if not already present.
+        
+        **Consumer Group Semantics:**
+        - Each partition is assigned to at most one consumer per group
+        - The server tracks committed offsets per (group, partition)
+        - Events are delivered starting from the last committed offset
+        - Inflight message limits are enforced for backpressure
+        
+        Use this endpoint with the ACK endpoint for at-least-once delivery.
+      operationId: groupStream
+      tags:
+        - Consumer Groups
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Consumer group identifier
+          schema:
+            type: string
+            minLength: 1
+          example: "my-consumer-group"
+        - name: consumerId
+          in: query
+          required: true
+          description: Unique identifier for this consumer within the group
+          schema:
+            type: string
+            minLength: 1
+          example: "consumer-1"
+        - name: partition
+          in: query
+          required: true
+          description: Partition ID to read from (must be assigned to this consumer)
+          schema:
+            type: integer
+            minimum: 0
+          example: 0
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of events to return. Default is 100.
+          schema:
+            type: integer
+            minimum: 1
+            default: 100
+          example: 100
+      responses:
+        '200':
+          description: Events retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamResult'
+              examples:
+                withEvents:
+                  summary: Stream with events
+                  value:
+                    entries:
+                      - Offset: 42
+                        Timestamp: 1704067200000000000
+                        Key: "user-1"
+                        Data: "eyJ0ZXN0IjoxfQ=="
+                empty:
+                  summary: No events at offset
+                  value:
+                    entries: []
+        '400':
+          description: Bad request (missing or invalid parameters)
+          content:
+            text/plain:
+              schema:
+                type: string
+              examples:
+                missingConsumerId:
+                  value: "Missing consumerId parameter"
+                missingPartition:
+                  value: "Missing partition parameter"
+                invalidPartition:
+                  value: "Invalid partition"
+                invalidLimit:
+                  value: "Invalid limit"
+        '403':
+          description: Partition not assigned to this consumer
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Partition not assigned to consumer: partition 0 assigned to consumer-2, not consumer-1"
+        '405':
+          description: Method not allowed (only GET is supported)
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Method not allowed"
+        '429':
+          description: Max inflight messages reached (backpressure)
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Max inflight messages reached"
+        '500':
+          description: Internal server error
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Internal server error"
+
+  /groups/{groupId}/ack:
+    post:
+      summary: Acknowledge (commit) processed events
+      description: |
+        Commits the offset for a consumer group and partition after processing events.
+        This advances the committed offset so subsequent reads start from the new position.
+        
+        **At-Least-Once Delivery:**
+        - Only call ACK after successfully processing the events
+        - If ACK fails, the events will be redelivered on the next stream call
+        - Offsets must be monotonically increasing (cannot commit a lower offset)
+        
+        The consumer must own the partition to commit offsets.
+      operationId: groupAck
+      tags:
+        - Consumer Groups
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Consumer group identifier
+          schema:
+            type: string
+            minLength: 1
+          example: "my-consumer-group"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AckRequest'
+            examples:
+              simple:
+                summary: Acknowledge offset 42 on partition 0
+                value:
+                  consumerId: "consumer-1"
+                  partition: 0
+                  offset: 42
+      responses:
+        '200':
+          description: Offset committed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+              example:
+                status: "ok"
+        '400':
+          description: Bad request (invalid JSON or missing fields)
+          content:
+            text/plain:
+              schema:
+                type: string
+              examples:
+                invalidJSON:
+                  value: "Invalid JSON"
+                missingConsumerId:
+                  value: "Missing consumerId"
+        '403':
+          description: Partition not assigned to this consumer
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Partition not assigned to consumer: partition 0 assigned to consumer-2, not consumer-1"
+        '405':
+          description: Method not allowed (only POST is supported)
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Method not allowed"
+        '500':
+          description: Failed to commit offset
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to commit offset"
+
+  /groups/{groupId}/heartbeat:
+    post:
+      summary: Send consumer heartbeat
+      description: |
+        Sends a heartbeat to keep the consumer alive in the group.
+        Consumers that don't send heartbeats within the timeout period are considered dead
+        and their partition assignments are released for reassignment.
+        
+        **Liveness Detection:**
+        - Heartbeat timeout is configurable via PULSE_CONSUMER_TIMEOUT_MS (default: 30 seconds)
+        - Dead consumers are automatically removed from the group
+        - Partitions are reassigned using round-robin among remaining consumers
+        - Committed offsets are preserved (no rewind on consumer failure)
+        
+        If the consumer is not registered, this endpoint will register it.
+      operationId: groupHeartbeat
+      tags:
+        - Consumer Groups
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Consumer group identifier
+          schema:
+            type: string
+            minLength: 1
+          example: "my-consumer-group"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HeartbeatRequest'
+            examples:
+              simple:
+                summary: Send heartbeat for consumer-1
+                value:
+                  consumerId: "consumer-1"
+      responses:
+        '200':
+          description: Heartbeat received successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+              example:
+                status: "ok"
+        '400':
+          description: Bad request (invalid JSON or missing fields)
+          content:
+            text/plain:
+              schema:
+                type: string
+              examples:
+                invalidJSON:
+                  value: "Invalid JSON"
+                missingConsumerId:
+                  value: "Missing consumerId"
+        '405':
+          description: Method not allowed (only POST is supported)
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Method not allowed"
+        '500':
+          description: Failed to send heartbeat
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to send heartbeat"
 
 components:
   schemas:
@@ -385,6 +662,13 @@ components:
         - stream_requests
         - stream_events
         - stream_errors
+        - group_stream_requests
+        - group_stream_events
+        - group_stream_errors
+        - ack_requests
+        - ack_errors
+        - heartbeat_requests
+        - heartbeat_errors
       properties:
         ingest_requests:
           type: integer
@@ -421,3 +705,92 @@ components:
           format: int64
           description: Total number of stream errors
           example: 0
+        group_stream_requests:
+          type: integer
+          format: int64
+          description: Total number of consumer group stream requests received
+          example: 456
+        group_stream_events:
+          type: integer
+          format: int64
+          description: Total number of events streamed via consumer groups
+          example: 12345
+        group_stream_errors:
+          type: integer
+          format: int64
+          description: Total number of consumer group stream errors
+          example: 1
+        ack_requests:
+          type: integer
+          format: int64
+          description: Total number of ACK (commit) requests received
+          example: 234
+        ack_errors:
+          type: integer
+          format: int64
+          description: Total number of ACK errors
+          example: 0
+        ack_avg_latency_ms:
+          type: number
+          format: double
+          description: Average ACK latency in milliseconds (only present if ack_requests > 0)
+          example: 1.23
+        heartbeat_requests:
+          type: integer
+          format: int64
+          description: Total number of heartbeat requests received
+          example: 567
+        heartbeat_errors:
+          type: integer
+          format: int64
+          description: Total number of heartbeat errors
+          example: 0
+
+    AckRequest:
+      type: object
+      description: Request to acknowledge (commit) processed events
+      required:
+        - consumerId
+        - partition
+        - offset
+      properties:
+        consumerId:
+          type: string
+          description: Unique identifier for the consumer within the group
+          minLength: 1
+          example: "consumer-1"
+        partition:
+          type: integer
+          description: Partition ID to commit offset for
+          minimum: 0
+          example: 0
+        offset:
+          type: integer
+          format: int64
+          description: Offset to commit (must be >= current committed offset)
+          minimum: 0
+          example: 42
+
+    HeartbeatRequest:
+      type: object
+      description: Request to send consumer heartbeat
+      required:
+        - consumerId
+      properties:
+        consumerId:
+          type: string
+          description: Unique identifier for the consumer within the group
+          minLength: 1
+          example: "consumer-1"
+
+    StatusResponse:
+      type: object
+      description: Generic status response
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          description: Status message
+          enum: ["ok"]
+          example: "ok"
