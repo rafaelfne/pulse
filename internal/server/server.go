@@ -459,6 +459,12 @@ func (s *Server) handleGroupStream(w http.ResponseWriter, r *http.Request, group
 		return
 	}
 
+	if partition < 0 {
+		s.metrics.GroupStreamErrors.Add(1)
+		http.Error(w, "Partition must be non-negative", http.StatusBadRequest)
+		return
+	}
+
 	limit := 100 // Default
 	if limitStr != "" {
 		limit, err = strconv.Atoi(limitStr)
@@ -520,12 +526,9 @@ func (s *Server) handleGroupStream(w http.ResponseWriter, r *http.Request, group
 	}
 
 	// Track the allowed events
+	// We already validated inflight limits above; any error here is unexpected.
 	for i := 0; i < numEvents; i++ {
-		if trackErr := s.groupManager.TrackInflight(groupID, consumerID, partition); trackErr != nil {
-			s.logger.Error("track inflight failed", "error", trackErr)
-			// This shouldn't happen since we checked the count, but log if it does
-			break
-		}
+		_ = s.groupManager.TrackInflight(groupID, consumerID, partition)
 	}
 
 	s.metrics.GroupStreamEvents.Add(int64(len(result.Entries)))
@@ -564,9 +567,22 @@ func (s *Server) handleGroupAck(w http.ResponseWriter, r *http.Request, groupID 
 		return
 	}
 
+	// Validate required fields and value constraints
 	if req.ConsumerID == "" {
 		s.metrics.AckErrors.Add(1)
 		http.Error(w, "Missing consumerId", http.StatusBadRequest)
+		return
+	}
+
+	if req.Partition < 0 {
+		s.metrics.AckErrors.Add(1)
+		http.Error(w, "Partition must be non-negative", http.StatusBadRequest)
+		return
+	}
+
+	if req.Offset < 0 {
+		s.metrics.AckErrors.Add(1)
+		http.Error(w, "Offset must be non-negative", http.StatusBadRequest)
 		return
 	}
 

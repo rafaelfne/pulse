@@ -89,6 +89,10 @@ func (s *Store) Start(ctx context.Context) {
 				return
 			case <-ctx.Done():
 				s.flushTicker.Stop()
+				// Final flush when context is cancelled
+				if err := s.flush(); err != nil {
+					s.logger.Error("final flush offsets failed", "error", err)
+				}
 				return
 			}
 		}

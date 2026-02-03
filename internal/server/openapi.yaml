@@ -170,14 +170,14 @@ paths:
                   summary: Stream with events
                   value:
                     entries:
-                      - offset: 42
-                        timestamp: 1704067200000000000
-                        key: "user-1"
-                        data: "eyJ0ZXN0IjoxfQ=="
-                      - offset: 43
-                        timestamp: 1704067201000000000
-                        key: "user-1"
-                        data: "eyJ0ZXN0IjoyfQ=="
+                      - Offset: 42
+                        Timestamp: 1704067200000000000
+                        Key: "user-1"
+                        Data: "eyJ0ZXN0IjoxfQ=="
+                      - Offset: 43
+                        Timestamp: 1704067201000000000
+                        Key: "user-1"
+                        Data: "eyJ0ZXN0IjoyfQ=="
                 empty:
                   summary: No events at offset
                   value:
@@ -326,10 +326,10 @@ paths:
                   summary: Stream with events
                   value:
                     entries:
-                      - offset: 42
-                        timestamp: 1704067200000000000
-                        key: "user-1"
-                        data: "eyJ0ZXN0IjoxfQ=="
+                      - Offset: 42
+                        Timestamp: 1704067200000000000
+                        Key: "user-1"
+                        Data: "eyJ0ZXN0IjoxfQ=="
                 empty:
                   summary: No events at offset
                   value:

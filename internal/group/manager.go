@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 )
@@ -316,6 +317,9 @@ func (m *Manager) rebalanceGroup(group *Group) {
 	for consumerID := range group.consumers {
 		consumerList = append(consumerList, consumerID)
 	}
+
+	// Sort consumer list for deterministic and stable assignments
+	sort.Strings(consumerList)
 
 	// Assign partitions round-robin
 	for partition := 0; partition < m.numPartitions; partition++ {
