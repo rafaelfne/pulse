@@ -185,12 +185,61 @@ make build
 # Run tests
 make test
 
+# Run end-to-end integration test (fast mode, ~10k events)
+make e2e
+
+# Run end-to-end integration test (stress mode, ~200k events)
+make e2e-stress
+
 # Format code
 make fmt
 
 # Run linters
 make lint
 ```
+
+### End-to-End Integration Tests
+
+Pulse includes a high-volume end-to-end integration test that exercises the full system under realistic load conditions. The test produces and consumes events, validates correctness, and generates a colored terminal summary.
+
+**Quick Start:**
+
+```bash
+# Run fast CI mode (10,000 events, ~1 second)
+make e2e
+
+# Run stress mode (200,000 events, colored output)
+make e2e-stress
+```
+
+**Configuration:**
+
+The test can be customized via environment variables:
+
+- `PULSE_E2E_EVENTS` - Number of events to generate. Default: `10000` (CI), `200000` (stress)
+- `PULSE_E2E_PAYLOAD_BYTES` - Event payload size in bytes. Default: `128`
+- `PULSE_E2E_BATCH_SIZE` - Batch size for ingestion. Default: `500`
+- `PULSE_E2E_MODE` - Test mode: `ci` (fast) or `stress` (high volume). Default: `ci`
+- `NO_COLOR=1` - Disable colored output
+
+**Example:**
+
+```bash
+# Custom test with 50k events and 256-byte payloads
+PULSE_E2E_EVENTS=50000 PULSE_E2E_PAYLOAD_BYTES=256 make e2e
+
+# Stress test without colors (for CI environments)
+NO_COLOR=1 make e2e-stress
+```
+
+**What it validates:**
+
+- ✅ Event count matches (produced == consumed)
+- ✅ Per-partition offset continuity (no gaps)
+- ✅ Offset ordering within partitions
+- ✅ Data integrity (payload size verification)
+- ✅ In-process startup and shutdown
+- ✅ High-throughput ingestion and consumption rates
 
 ## Configuration
 
