@@ -13,6 +13,7 @@
 
 # Built binaries
 /pulse
+/pulsetest
 /tmp/
 
 # Data directory (runtime generated)

@@ -1,4 +1,4 @@
-.PHONY: fmt test build run lint clean help
+.PHONY: fmt test build run lint clean e2e e2e-stress help
 
 # Default target
 .DEFAULT_GOAL := help
@@ -22,6 +22,16 @@ build:
 run:
 	@echo "Running pulse..."
 	@go run ./cmd/pulse
+
+## e2e: Run end-to-end integration test (fast mode)
+e2e:
+	@echo "Running e2e integration test (fast mode)..."
+	@PULSE_E2E_MODE=ci go run ./cmd/pulsetest
+
+## e2e-stress: Run end-to-end integration test (stress mode with colored output)
+e2e-stress:
+	@echo "Running e2e integration test (stress mode)..."
+	@PULSE_E2E_MODE=stress go run ./cmd/pulsetest
 
 ## lint: Run golangci-lint
 lint:
