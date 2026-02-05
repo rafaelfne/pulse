@@ -105,6 +105,59 @@ func TestLoad(t *testing.T) {
 			},
 		},
 		{
+			name: "cluster disabled by default",
+			env:  map[string]string{},
+			checkFunc: func(t *testing.T, cfg Config) {
+				if cfg.ClusterEnabled {
+					t.Errorf("expected ClusterEnabled=false by default, got true")
+				}
+			},
+		},
+		{
+			name: "cluster enabled with valid config",
+			env: map[string]string{
+				"PULSE_CLUSTER_ENABLED":       "true",
+				"PULSE_NODE_ID":               "node1",
+				"PULSE_NODE_ADDRESS":          "192.168.1.1:8080",
+				"PULSE_CLUSTER_PEERS":         "node2:192.168.1.2:8080,node3:192.168.1.3:8080",
+				"PULSE_HEARTBEAT_INTERVAL_MS": "1000",
+				"PULSE_ELECTION_TIMEOUT_MS":   "5000",
+			},
+			checkFunc: func(t *testing.T, cfg Config) {
+				if !cfg.ClusterEnabled {
+					t.Errorf("expected ClusterEnabled=true, got false")
+				}
+				if cfg.NodeID != "node1" {
+					t.Errorf("expected NodeID=node1, got %s", cfg.NodeID)
+				}
+				if cfg.NodeAddress != "192.168.1.1:8080" {
+					t.Errorf("expected NodeAddress=192.168.1.1:8080, got %s", cfg.NodeAddress)
+				}
+				if len(cfg.ClusterPeers) != 2 {
+					t.Errorf("expected 2 cluster peers, got %d", len(cfg.ClusterPeers))
+				}
+				if cfg.HeartbeatIntervalMs != 1000 {
+					t.Errorf("expected HeartbeatIntervalMs=1000, got %d", cfg.HeartbeatIntervalMs)
+				}
+			},
+		},
+		{
+			name: "cluster enabled without node ID",
+			env: map[string]string{
+				"PULSE_CLUSTER_ENABLED": "true",
+				"PULSE_NODE_ADDRESS":    "192.168.1.1:8080",
+			},
+			wantErr: true,
+		},
+		{
+			name: "cluster enabled without node address",
+			env: map[string]string{
+				"PULSE_CLUSTER_ENABLED": "true",
+				"PULSE_NODE_ID":         "node1",
+			},
+			wantErr: true,
+		},
+		{
 			name: "invalid log level",
 			env: map[string]string{
 				"PULSE_LOG_LEVEL": "invalid",
@@ -201,6 +254,80 @@ func TestValidate(t *testing.T) {
 				ShutdownTimeoutMs: 5000,
 				NumPartitions:     4,
 				ServerPort:        99999,
+			},
+			wantErr: true,
+		},
+		{
+			name: "cluster enabled with valid config",
+			cfg: Config{
+				LogLevel:              "info",
+				Env:                   "local",
+				ShutdownTimeoutMs:     5000,
+				NumPartitions:         4,
+				ServerPort:            8080,
+				ClusterEnabled:        true,
+				NodeID:                "node1",
+				NodeAddress:           "192.168.1.1:8080",
+				HeartbeatIntervalMs:   1000,
+				ElectionTimeoutMs:     5000,
+				HealthCheckIntervalMs: 1000,
+			},
+			wantErr: false,
+		},
+		{
+			name: "cluster enabled without node ID",
+			cfg: Config{
+				LogLevel:          "info",
+				Env:               "local",
+				ShutdownTimeoutMs: 5000,
+				NumPartitions:     4,
+				ServerPort:        8080,
+				ClusterEnabled:    true,
+				NodeAddress:       "192.168.1.1:8080",
+			},
+			wantErr: true,
+		},
+		{
+			name: "cluster enabled without node address",
+			cfg: Config{
+				LogLevel:          "info",
+				Env:               "local",
+				ShutdownTimeoutMs: 5000,
+				NumPartitions:     4,
+				ServerPort:        8080,
+				ClusterEnabled:    true,
+				NodeID:            "node1",
+			},
+			wantErr: true,
+		},
+		{
+			name: "cluster enabled with invalid heartbeat interval",
+			cfg: Config{
+				LogLevel:            "info",
+				Env:                 "local",
+				ShutdownTimeoutMs:   5000,
+				NumPartitions:       4,
+				ServerPort:          8080,
+				ClusterEnabled:      true,
+				NodeID:              "node1",
+				NodeAddress:         "192.168.1.1:8080",
+				HeartbeatIntervalMs: -100,
+			},
+			wantErr: true,
+		},
+		{
+			name: "cluster enabled with invalid election timeout",
+			cfg: Config{
+				LogLevel:            "info",
+				Env:                 "local",
+				ShutdownTimeoutMs:   5000,
+				NumPartitions:       4,
+				ServerPort:          8080,
+				ClusterEnabled:      true,
+				NodeID:              "node1",
+				NodeAddress:         "192.168.1.1:8080",
+				HeartbeatIntervalMs: 1000,
+				ElectionTimeoutMs:   0,
 			},
 			wantErr: true,
 		},
