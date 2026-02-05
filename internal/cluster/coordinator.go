@@ -143,6 +143,9 @@ func (c *Coordinator) Start(ctx context.Context) error {
 				c.healthCheckTicker.Stop()
 				return
 			case <-ctx.Done():
+				c.mu.Lock()
+				c.state = CoordinatorStateStopped
+				c.mu.Unlock()
 				c.healthCheckTicker.Stop()
 				return
 			}
