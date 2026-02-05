@@ -116,9 +116,9 @@ func TestLoad(t *testing.T) {
 		{
 			name: "cluster enabled with valid config",
 			env: map[string]string{
-				"PULSE_CLUSTER_ENABLED":       "true",
-				"PULSE_NODE_ID":               "node1",
-				"PULSE_NODE_ADDRESS":          "192.168.1.1:8080",
+				"PULSE_CLUSTER_ENABLED": "true",
+				"PULSE_NODE_ID":         "node1",
+				"PULSE_NODE_ADDRESS":    "192.168.1.1:8080",
 				// PULSE_CLUSTER_PEERS is expected to be a comma-separated list of peer nodes
 				// in the form "nodeID:host:port". The network layer will consume this format.
 				"PULSE_CLUSTER_PEERS":         "node2:192.168.1.2:8080,node3:192.168.1.3:8080",

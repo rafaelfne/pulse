@@ -187,9 +187,9 @@ func getEnvStringSlice(key string, defaultValue []string) []string {
 	if value := os.Getenv(key); value != "" {
 		// Support comma-separated values
 		var result []string
-		parts := splitString(value, ",")
+		parts := strings.Split(value, ",")
 		for _, part := range parts {
-			trimmed := trimString(part)
+			trimmed := strings.TrimSpace(part)
 			if trimmed != "" {
 				result = append(result, trimmed)
 			}
@@ -199,15 +199,4 @@ func getEnvStringSlice(key string, defaultValue []string) []string {
 		}
 	}
 	return defaultValue
-}
-
-func splitString(s string, sep string) []string {
-	if s == "" {
-		return []string{}
-	}
-	return strings.Split(s, sep)
-}
-
-func trimString(s string) string {
-	return strings.TrimSpace(s)
 }
