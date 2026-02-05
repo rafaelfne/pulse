@@ -186,9 +186,11 @@ func getEnvStringSlice(key string, defaultValue []string) []string {
 	if value := os.Getenv(key); value != "" {
 		// Support comma-separated values
 		var result []string
-		for _, v := range splitAndTrim(value, ",") {
-			if v != "" {
-				result = append(result, v)
+		parts := splitString(value, ",")
+		for _, part := range parts {
+			trimmed := trimString(part)
+			if trimmed != "" {
+				result = append(result, trimmed)
 			}
 		}
 		if len(result) > 0 {
@@ -198,19 +200,12 @@ func getEnvStringSlice(key string, defaultValue []string) []string {
 	return defaultValue
 }
 
-func splitAndTrim(s string, sep string) []string {
-	parts := []string{}
-	for _, part := range splitString(s, sep) {
-		trimmed := trimString(part)
-		parts = append(parts, trimmed)
-	}
-	return parts
-}
-
 func splitString(s string, sep string) []string {
 	if s == "" {
 		return []string{}
 	}
+	// Use a simple manual split since strings.Split is not imported
+	// and we want to minimize changes to the existing import structure
 	result := []string{}
 	current := ""
 	for i := 0; i < len(s); i++ {
@@ -229,6 +224,7 @@ func splitString(s string, sep string) []string {
 func trimString(s string) string {
 	start := 0
 	end := len(s)
+	// Manual trim to avoid adding strings import
 	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
 		start++
 	}

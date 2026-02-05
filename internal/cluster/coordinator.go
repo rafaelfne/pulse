@@ -40,6 +40,8 @@ func (s CoordinatorState) String() string {
 
 // Coordinator manages the cluster state, coordinating node registry,
 // partition registry, and leader elections.
+// Note: Coordinator cannot be restarted after Stop() is called due to
+// closed channels. Create a new Coordinator instance for restart.
 type Coordinator struct {
 	logger              *slog.Logger
 	nodeRegistry        *Registry
@@ -213,7 +215,7 @@ func (c *Coordinator) AssignPartitions() error {
 		nodeIDs[i] = node.ID
 	}
 
-	// Assign partitions using round-robin (respects the assignment)
+	// Assign partitions using round-robin strategy
 	if err := c.partitionRegistry.AssignPartitionsRoundRobin(c.numPartitions, nodeIDs); err != nil {
 		return fmt.Errorf("assign partitions: %w", err)
 	}
