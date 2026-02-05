@@ -220,20 +220,6 @@ func (c *Coordinator) AssignPartitions() error {
 		return fmt.Errorf("assign partitions: %w", err)
 	}
 
-	// Record elections for each partition (for tracking purposes)
-	// The round-robin assignment is already the leader selection
-	for i := 0; i < c.numPartitions; i++ {
-		partition, err := c.partitionRegistry.GetPartition(i)
-		if err != nil {
-			continue
-		}
-		// Just record the election with the assigned leader
-		_, err = c.electionManager.StartElection(i, []string{partition.Leader})
-		if err != nil {
-			c.logger.Error("election failed", "partition", i, "error", err)
-		}
-	}
-
 	c.logger.Info("partitions assigned",
 		"num_partitions", c.numPartitions,
 		"num_nodes", len(nodeIDs))
